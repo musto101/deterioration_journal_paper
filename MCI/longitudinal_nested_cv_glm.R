@@ -1,13 +1,29 @@
 library(caret)
+library(broom)
 library(tidyverse)
 library(performanceEstimation)
 library(doParallel)
 library(pROC)
+#library(boot)
 pre <- Sys.time()
 
-adni_slim <- read.csv('data/adni_slim.csv')
+bootstrapping <- function(training) {
+  
+  training <- as.tibble(training)
+  
+  x <- training %>% sample_n(replace = T, size = 1000)
+  
+  return(x)
+}
 
-dat <- cn_progress
+dat <- read.csv('data/mci_progress.csv', stringsAsFactors = T)
+
+dat$X <- NULL
+#dat$last_DX <- as.numeric(dat$last_DX)
+
+#table(dat$last_DX)
+
+#dat <-as.data.frame(lapply(dat,as.numeric))
 
 ### MC initial
 mcPerf <- data.frame(ROC = numeric(), Sens = numeric(), Spec = numeric(),
@@ -54,6 +70,8 @@ for (j in 1:mcRep) {
     
     test[,-1] <- predict(impute_test, test[,-1])
     
+    
+    booted_training <- bootstrapping(training)
     # tuning
     glmModel <- train(last_DX ~ ., training, method = "glmnet", 
                           metric = "ROC",

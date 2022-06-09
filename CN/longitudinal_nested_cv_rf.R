@@ -4,41 +4,7 @@ library(performanceEstimation)
 library(doParallel)
 library(pROC)
 
-adni_slim <- read.csv('data/adni_slim.csv')
-
-missing.perc <- apply(adni_slim, 2, function(x) sum(is.na(x))) / nrow(adni_slim)
-
-adni_slim <- adni_slim[, which(missing.perc < 0.9)]
-
-dummies <- dummyVars(last_DX ~., data = adni_slim)
-data_numeric <- predict(dummies, newdata= adni_slim)
-data_numeric <- as.data.frame(data_numeric)
-data_numeric <-data.frame(adni_slim$last_DX, data_numeric)
-
-names(data_numeric)[1] <- 'last_DX'
-
-data_numeric$X <- NULL
-
-cn_progress <- data_numeric[data_numeric$DXCN == 1,]
-cn_progress$last_DX <- factor(ifelse(cn_progress$last_DX == 'CN',
-                                     'CN', 'MCI_AD'),
-                              levels = c('CN', 'MCI_AD')) 
-
-cn_progress$DXCN <- NULL
-cn_progress$DXDementia <- NULL
-cn_progress$DXMCI <- NULL
-
-table(cn_progress$last_DX)
-
-cn_progress$last_DX <- as.numeric(cn_progress$last_DX)
-
-table(cn_progress$last_DX)
-
-cn_progress$last_DX <- ifelse(cn_progress$last_DX == 1, 0, 1)
-
-table(cn_progress$last_DX)
-# CN is 0
-write.csv(cn_progress, 'data/cn_progress.csv')
+dat <- read.csv('data/cn_progress.csv')
 
 ### MC initial
 mcPerf <- data.frame(ROC = numeric(), Sens = numeric(), Spec = numeric(),
