@@ -28,7 +28,7 @@ dat$X <- NULL
 ### MC initial
 mcPerf <- data.frame(ROC = numeric(), Sens = numeric(), Spec = numeric(),
                      Accuracy = numeric(), Kappa = numeric())
-mcRep <- 1
+mcRep <- 100
 
 ctrl <- trainControl(method = 'cv', number = 5, classProbs = T, 
                      summaryFunction = twoClassSummary, sampling = 'smote',
@@ -65,10 +65,10 @@ for (j in 1:mcRep) {
     impute_train <- preProcess(training, method = "knnImpute")
     training <- predict(impute_train, training)
     
-    impute_test <- preProcess(rbind(training[,-1], test[,-1]),
-                              method = "knnImpute")
+    # impute_test <- preProcess(rbind(training[,-1], test[,-1]),
+    #                           method = "knnImpute")
     
-    test[,-1] <- predict(impute_test, test[,-1])
+    test[,-1] <- predict(impute_train, test[,-1])
     
     
     booted_training <- bootstrapping(training)
@@ -107,17 +107,17 @@ for (j in 1:mcRep) {
   # perf
   rfROCfull <- roc(dat$last_DX, totalprobabilities, levels = c('CN_MCI',
                                                                'Dementia'))
-  rfROC <- roc(response = cn_progress$last_DX, totalprobabilities,
+  rfROC <- roc(response = dat$last_DX, totalprobabilities,
                levels = c('CN_MCI','Dementia'))
   
   rfThresh <- coords(rfROC, x = 'best', best.method = 'youden')
   
   pred <- ifelse(totalprobabilities >= rfThresh[1, 1], 'CN_MCI','Dementia')
   
-  sen <- sensitivity(factor(pred), (cn_progress$last_DX))
-  speci <- specificity(factor(pred), (cn_progress$last_DX))
-  kp <- confusionMatrix(factor(pred), (cn_progress$last_DX))[[3]][2]
-  acc <- confusionMatrix(factor(pred), (cn_progress$last_DX))[[3]][1]
+  sen <- sensitivity(factor(pred), (dat$last_DX))
+  speci <- specificity(factor(pred), (dat$last_DX))
+  kp <- confusionMatrix(factor(pred), (dat$last_DX))[[3]][2]
+  acc <- confusionMatrix(factor(pred), (dat$last_DX))[[3]][1]
   
   v <- c(ROC = auc(rfROCfull), sen, speci, acc, kp)
   names(v) <- c('ROC', 'Sens', 'Spec', 'Accuracy', 'Kappa')
