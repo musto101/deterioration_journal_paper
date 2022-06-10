@@ -3,32 +3,20 @@ library(tidyverse)
 library(performanceEstimation)
 library(doParallel)
 library(pROC)
+pre <- Sys.time()
 
-adni_slim <- read.csv('data/adni_slim.csv')
+bootstrapping <- function(training) {
+  
+  training <- as.tibble(training)
+  
+  x <- training %>% sample_n(replace = T, size = 1000)
+  
+  return(x)
+}
 
-missing.perc <- apply(adni_slim, 2, function(x) sum(is.na(x))) / nrow(adni_slim)
+dat <- read.csv('data/cn_progress.csv', stringsAsFactors = T)
 
-adni_slim <- adni_slim[, which(missing.perc < 0.9)]
-
-dummies <- dummyVars(last_DX ~., data = adni_slim)
-data_numeric <- predict(dummies, newdata= adni_slim)
-data_numeric <- as.data.frame(data_numeric)
-data_numeric <-data.frame(adni_slim$last_DX, data_numeric)
-
-names(data_numeric)[1] <- 'last_DX'
-
-data_numeric$X <- NULL
-
-cn_progress <- data_numeric[data_numeric$DXCN == 1,]
-cn_progress$last_DX <- factor(ifelse(cn_progress$last_DX == 'CN',
-                                     'CN', 'MCI_AD'),
-                              levels = c('CN', 'MCI_AD')) 
-
-cn_progress$DXCN <- NULL
-cn_progress$DXDementia <- NULL
-cn_progress$DXMCI <- NULL
-dat <- cn_progress
-
+dat$X <- NULL
 ### MC initial
 mcPerf <- data.frame(ROC = numeric(), Sens = numeric(), Spec = numeric(),
                      Accuracy = numeric(), Kappa = numeric())
@@ -38,7 +26,8 @@ ctrl <- trainControl(method = 'cv', number = 5, classProbs = T,
                      summaryFunction = twoClassSummary,# sampling='smote',
                      verboseIter = F)
 
-GLMGrid <- expand.grid(alpha = seq(0, 1, 0.01), lambda = seq(0, 10, 0.1))
+GLMGrid <- expand.grid(lambda = seq(0, 5, 0.1),
+                       alpha = seq(0, 1, 0.1))
 
 cl <- makeCluster(detectCores())
 # cl <- makeCluster(7)
@@ -68,19 +57,22 @@ for (j in 1:mcRep) {
     # # missing values imputation
     
     impute_train <- preProcess(training, method = "knnImpute")
-    training <- predict(impute_train, training)
+    #training <- predict(impute_train, training)
     
-    impute_test <- preProcess(rbind(training[,-1], test[,-1]),
-                              method = "knnImpute")
+    # impute_test <- preProcess(rbind(training[,-1], test[,-1]),
+    #                           method = "knnImpute")
     
-    test[,-1] <- predict(impute_test, test[,-1])
+    test[,-1] <- predict(impute_train, test[,-1])
+    
+    booted_training <- bootstrapping(training)
     
     # tuning
-    glmModel <- train(last_DX ~ ., training, method = "glmnet", 
-                    metric = "ROC",
-                    # preProc = c("center", "scale"),
-                    tuneGrid = GLMGrid,
-                    trControl = ctrl)
+    glmModel <- train(last_DX ~ ., 
+                      booted_training, method = "glmnet",
+                      metric = "ROC",
+                      na.action = na.pass,
+                      preProcess = c("knnImpute", "scale", "center"),
+                      tuneGrid = GLMGrid, trControl = ctrl)
     
     
     
@@ -108,17 +100,17 @@ for (j in 1:mcRep) {
   # perf
   rfROCfull <- roc(dat$last_DX, totalprobabilities, levels = c('CN',
                                                                'MCI_AD'))
-  rfROC <- roc(response = cn_progress$last_DX, totalprobabilities,
+  rfROC <- roc(response = dat$last_DX, totalprobabilities,
                levels = c('CN', 'MCI_AD'))
   
   rfThresh <- coords(rfROC, x = 'best', best.method = 'youden')
   
   pred <- ifelse(totalprobabilities >= rfThresh[1, 1], 'MCI_AD', 'CN')
   
-  sen <- sensitivity(factor(pred), (cn_progress$last_DX))
-  speci <- specificity(factor(pred), (cn_progress$last_DX))
-  kp <- confusionMatrix(factor(pred), (cn_progress$last_DX))[[3]][2]
-  acc <- confusionMatrix(factor(pred), (cn_progress$last_DX))[[3]][1]
+  sen <- sensitivity(factor(pred), (dat$last_DX))
+  speci <- specificity(factor(pred), (dat$last_DX))
+  kp <- confusionMatrix(factor(pred), (dat$last_DX))[[3]][2]
+  acc <- confusionMatrix(factor(pred), (dat$last_DX))[[3]][1]
   
   v <- c(ROC = auc(rfROCfull), sen, speci, acc, kp)
   names(v) <- c('ROC', 'Sens', 'Spec', 'Accuracy', 'Kappa')

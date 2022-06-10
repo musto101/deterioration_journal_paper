@@ -63,7 +63,7 @@ for (j in 1:mcRep) {
     # # missing values imputation
     
     impute_train <- preProcess(training, method = "knnImpute")
-    training <- predict(impute_train, training)
+    #training <- predict(impute_train, training)
     
     # impute_test <- preProcess(rbind(training[,-1], test[,-1]),
     #                           method = "knnImpute")
@@ -73,11 +73,12 @@ for (j in 1:mcRep) {
     
     booted_training <- bootstrapping(training)
     # tuning
-    glmModel <- train(last_DX ~ ., training, method = "glmnet", 
-                          metric = "ROC",
-                          # preProc = c("center", "scale"),
-                          tuneGrid = glmGrid,
-                          trControl = ctrl)
+    glmModel <- train(last_DX ~ .,
+                      data = booted_training, method = "glmnet",
+                      metric = "ROC",
+                      na.action = na.pass,
+                      preProcess = c("knnImpute", "scale", "center"),
+                      tuneGrid = glmGrid, trControl = ctrl)
     
     
     
