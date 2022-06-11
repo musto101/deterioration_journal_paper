@@ -26,15 +26,16 @@ ctrl <- trainControl(method = 'cv', number = 5, classProbs = T,
                      summaryFunction = twoClassSummary, sampling='smote',
                      verboseIter = F)
 
-GLMGrid <- expand.grid(lambda = seq(0, 10, 1),
-                       alpha = seq(0, 1, 0.01))
+xgbGrid <- expand.grid(nrounds = c(100,200),max_depth = c(10, 15, 20, 25),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),
+                       eta = 0.1, gamma = 0, min_child_weight = 1, 
+                       subsample = 1)
 
 cl <- makeCluster(detectCores())
 # cl <- makeCluster(7)
 registerDoParallel(cl)
 
 #repeat mcRep times
-
 for (j in 1:mcRep) {
   # create nrfolds folds and start outer CV
   print(j)
@@ -63,29 +64,28 @@ for (j in 1:mcRep) {
     
     test[,-1] <- predict(impute_train, test[,-1])
     
+    
     booted_training <- bootstrapping(training)
     
-    # tuning
-    glmModel <- train(last_DX ~ ., 
-                      booted_training, method = "glmnet",
-                      metric = "ROC",
-                      na.action = na.pass,
-                      preProcess = c("knnImpute", "scale", "center"),
-                      tuneGrid = GLMGrid, trControl = ctrl)
-    
-    
+    model <- train(last_DX ~ ., data = booted_training, method = "xgbTree",
+                   metric = "ROC",
+                   na.action = na.pass,
+                   preProcess = c("knnImpute", "scale", "center"),
+                   tuneGrid = xgbGrid, trControl = ctrl)
     
     ### post processing cross evaluation
     
     # ROC 
+    
     evalResults <- data.frame(last_DX = test$last_DX)
-    evalResults$rf <- predict(glmModel, test, type = "prob")[, 1]
-    evalResults$newPrediction <- predict(glmModel, test)
+    evalResults$rf <- predict(model, test, type = "prob")[, 1]
+    evalResults$newPrediction <- predict(model, test)
     
     
     totalnewPrediction[folds[[n]]] <- evalResults$newPrediction
     totalprobabilities[folds[[n]]] <- evalResults$rf
   }
+  
   totalnewPrediction <- ifelse(totalnewPrediction == 1, 'CN',
                                ifelse(totalnewPrediction == 2,
                                       'MCI_AD', totalnewPrediction))

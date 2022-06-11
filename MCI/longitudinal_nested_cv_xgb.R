@@ -14,7 +14,7 @@ bootstrapping <- function(training) {
   return(x)
 }
 
-dat <- read.csv('data/cn_progress.csv', stringsAsFactors = T)
+dat <- read.csv('data/mci_progress.csv', stringsAsFactors = T)
 
 dat$X <- NULL
 ### MC initial
@@ -26,15 +26,16 @@ ctrl <- trainControl(method = 'cv', number = 5, classProbs = T,
                      summaryFunction = twoClassSummary, sampling='smote',
                      verboseIter = F)
 
-GLMGrid <- expand.grid(lambda = seq(0, 10, 1),
-                       alpha = seq(0, 1, 0.01))
+xgbGrid <- expand.grid(nrounds = c(100,200),max_depth = c(10, 15, 20, 25),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),
+                       eta = 0.1, gamma = 0, min_child_weight = 1, 
+                       subsample = 1)
 
 cl <- makeCluster(detectCores())
 # cl <- makeCluster(7)
 registerDoParallel(cl)
 
 #repeat mcRep times
-
 for (j in 1:mcRep) {
   # create nrfolds folds and start outer CV
   print(j)
@@ -63,48 +64,49 @@ for (j in 1:mcRep) {
     
     test[,-1] <- predict(impute_train, test[,-1])
     
+    
     booted_training <- bootstrapping(training)
     
-    # tuning
-    glmModel <- train(last_DX ~ ., 
-                      booted_training, method = "glmnet",
+    model <- train(last_DX ~ ., data = booted_training, method = "xgbTree",
                       metric = "ROC",
                       na.action = na.pass,
                       preProcess = c("knnImpute", "scale", "center"),
-                      tuneGrid = GLMGrid, trControl = ctrl)
-    
-    
+                      tuneGrid = xgbGrid, trControl = ctrl)
     
     ### post processing cross evaluation
     
     # ROC 
+    
     evalResults <- data.frame(last_DX = test$last_DX)
-    evalResults$rf <- predict(glmModel, test, type = "prob")[, 1]
-    evalResults$newPrediction <- predict(glmModel, test)
+    evalResults$rf <- predict(model, test, type = "prob")[, 1]
+    evalResults$newPrediction <- predict(model, test)
     
     
     totalnewPrediction[folds[[n]]] <- evalResults$newPrediction
     totalprobabilities[folds[[n]]] <- evalResults$rf
   }
-  totalnewPrediction <- ifelse(totalnewPrediction == 1, 'CN',
+  
+  totalnewPrediction <- ifelse(totalnewPrediction == 1, 'CN_MCI',
                                ifelse(totalnewPrediction == 2,
-                                      'MCI_AD', totalnewPrediction))
-  totalnewPrediction <- factor(totalnewPrediction, levels = c('CN',
-                                                              'MCI_AD'))
+                                      'Dementia', totalnewPrediction))
+  totalnewPrediction <- factor(totalnewPrediction, levels = c('CN_MCI',
+                                                              'Dementia'))
+  dat$last_DX = factor(dat$last_DX, levels = c('CN_MCI',
+                                               'Dementia'))
   
   # confusion matrix all dataset
-  cm <- confusionMatrix(totalnewPrediction, dat$last_DX, positive = 'MCI_AD')
+  cm <- confusionMatrix(totalnewPrediction, dat$last_DX, positive = 'Dementia')
   cm
   
   # perf
-  rfROCfull <- roc(dat$last_DX, totalprobabilities, levels = c('CN',
-                                                               'MCI_AD'))
+  rfROCfull <- roc(dat$last_DX, totalprobabilities, levels = c('CN_MCI',
+                                                               'Dementia'))
   rfROC <- roc(response = dat$last_DX, totalprobabilities,
-               levels = c('CN', 'MCI_AD'))
+               levels = c('CN_MCI','Dementia'))
   
   rfThresh <- coords(rfROC, x = 'best', best.method = 'youden')
   
-  pred <- ifelse(totalprobabilities >= rfThresh[1, 1], 'MCI_AD', 'CN')
+  pred <- ifelse(totalprobabilities >= rfThresh[1, 1], 'CN_MCI','Dementia')
   
   sen <- sensitivity(factor(pred), (dat$last_DX))
   speci <- specificity(factor(pred), (dat$last_DX))
@@ -118,11 +120,11 @@ for (j in 1:mcRep) {
   mcPerf <- rbind(mcPerf, v)
 }
 
-post <- Sys.time()
-
-post - pre
-
-# write.csv(mcPerf, 'data/cn_glmNetMcPerf.csv')
-# write.csv(totalprobabilities, 'data/cn_glm_total_probabilities.csv')
+write.csv(mcPerf, 'data/mci_glm_100_McPerf.csv')
+write.csv(totalprobabilities, 'data/mci_glm_McPerf_probabilities.csv')
 
 stopCluster(cl)
+
+post <- Sys.time()
+
+time_taken <- post - pre
