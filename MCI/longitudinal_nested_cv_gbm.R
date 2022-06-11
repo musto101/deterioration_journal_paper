@@ -3,31 +3,20 @@ library(tidyverse)
 library(performanceEstimation)
 library(doParallel)
 library(pROC)
+pre <- Sys.time()
 
-adni_slim <- read.csv('data/adni_slim.csv')
+bootstrapping <- function(training) {
+  
+  training <- as_tibble(training)
+  
+  x <- training %>% sample_n(replace = T, size = 1000)
+  
+  return(x)
+}
 
-missing.perc <- apply(adni_slim, 2, function(x) sum(is.na(x))) / nrow(adni_slim)
+dat <- read.csv('data/cn_progress.csv', stringsAsFactors = T)
 
-adni_slim <- adni_slim[, which(missing.perc < 0.9)]
-
-dummies <- dummyVars(last_DX ~., data = adni_slim)
-data_numeric <- predict(dummies, newdata= adni_slim)
-data_numeric <- as.data.frame(data_numeric)
-data_numeric <-data.frame(adni_slim$last_DX, data_numeric)
-
-names(data_numeric)[1] <- 'last_DX'
-
-data_numeric$X <- NULL
-
-cn_progress <- data_numeric[data_numeric$DXCN == 1,]
-cn_progress$last_DX <- factor(ifelse(cn_progress$last_DX == 'CN',
-                                     'CN', 'MCI_AD'),
-                              levels = c('CN', 'MCI_AD')) 
-
-cn_progress$DXCN <- NULL
-cn_progress$DXDementia <- NULL
-cn_progress$DXMCI <- NULL
-dat <- cn_progress
+dat$X <- NULL
 
 ### MC initial
 mcPerf <- data.frame(ROC = numeric(), Sens = numeric(), Spec = numeric(),
@@ -71,17 +60,19 @@ for (j in 1:mcRep) {
     impute_train <- preProcess(training, method = "knnImpute")
     training <- predict(impute_train, training)
     
-    impute_test <- preProcess(rbind(training[,-1], test[,-1]),
-                              method = "knnImpute")
+    # impute_test <- preProcess(rbind(training[,-1], test[,-1]),
+    #                           method = "knnImpute")
     
-    test[,-1] <- predict(impute_test, test[,-1])
+    test[,-1] <- predict(impute_train, test[,-1])
+    
+    booted_training <- bootstrapping(training)
     
     # tuning
-    gbmModel<-train(last_DX ~ ., training, method = "gbm", 
-                    metric = "ROC",
-                    # preProc = c("center", "scale"),
-                    tuneGrid = GBMGrid,
-                    trControl = ctrl)
+    gbmModel<-train(last_DX ~ ., booted_training, method = "gbm", 
+                          metric = "ROC",
+                          # preProc = c("center", "scale"),
+                          tuneGrid = GBMGrid,
+                          trControl = ctrl)
     
     
     
@@ -92,23 +83,23 @@ for (j in 1:mcRep) {
     evalResults$rf <- predict(gbmModel, test, type = "prob")[, 1]
     evalResults$newPrediction <- predict(gbmModel, test)
     
-    
+  
     totalnewPrediction[folds[[n]]] <- evalResults$newPrediction
     totalprobabilities[folds[[n]]] <- evalResults$rf
   }
-  totalnewPrediction <- ifelse(totalnewPrediction == 1, 'CN',
+  totalnewPrediction <- ifelse(totalnewPrediction == 1, 'CN_MCI',
                                ifelse(totalnewPrediction == 2,
-                                      'MCI_AD', totalnewPrediction))
-  totalnewPrediction <- factor(totalnewPrediction, levels = c('CN',
-                                                              'MCI_AD'))
+                                      'Dementia', totalnewPrediction))
+  totalnewPrediction <- factor(totalnewPrediction, levels = c('CN_MCI',
+                                                              'Dementia'))
   
   # confusion matrix all dataset
-  cm <- confusionMatrix(totalnewPrediction, dat$last_DX, positive = 'MCI_AD')
+  cm <- confusionMatrix(totalnewPrediction, dat$last_DX, positive = 'Dementia')
   cm
   
   # perf
-  rfROCfull <- roc(dat$last_DX, totalprobabilities, levels = c('CN',
-                                                               'MCI_AD'))
+  rfROCfull <- roc(dat$last_DX, totalprobabilities, levels = c('CN_MCI',
+                                                               'Dementia'))
   
   v <- c(ROC = auc(rfROCfull), cm$byClass[c(1, 2)], cm$overall[c(1, 2)])
   names(v) <- c('ROC', 'Sens', 'Spec', 'Accuracy', 'Kappa')
@@ -121,13 +112,12 @@ post <- Sys.time()
 
 post - pre
 
-write.csv(mcPerf, 'data/cn_gbmMcPerf.csv')
-write.csv(totalprobabilities, 'data/cn_gbm_total_probabilities.csv')
+write.csv(mcPerf, 'data/mci_gbmMcPerf.csv')
+write.csv(totalprobabilities, 'data/mci_gbm_total_probabilities.csv')
 
 stopCluster(cl)
 
-#metrics <- read.csv('data/cn_gbmMcPerf.csv')
-post - pre
+# metrics <- read.csv('data/rfPerf_100_mc.csv')
 # 
 # all_metrics_summarised  <- metrics %>%
 #   summarise(mean = across(ROC:Kappa, mean),
