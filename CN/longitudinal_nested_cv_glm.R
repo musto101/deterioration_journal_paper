@@ -7,7 +7,7 @@ pre <- Sys.time()
 
 bootstrapping <- function(training) {
   
-  training <- as.tibble(training)
+  training <- as_tibble(training)
   
   x <- training %>% sample_n(replace = T, size = 1000)
   
