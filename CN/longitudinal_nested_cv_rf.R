@@ -3,9 +3,20 @@ library(tidyverse)
 library(performanceEstimation)
 library(doParallel)
 library(pROC)
+pre <- Sys.time()
 
-dat <- read.csv('data/cn_progress.csv')
+bootstrapping <- function(training) {
+  
+  training <- as_tibble(training)
+  
+  x <- training %>% sample_n(replace = T, size = 1000)
+  
+  return(x)
+}
 
+dat <- read.csv('data/cn_progress.csv', stringsAsFactors = T)
+
+dat$X <- NULL
 ### MC initial
 mcPerf <- data.frame(ROC = numeric(), Sens = numeric(), Spec = numeric(),
                      Accuracy = numeric(), Kappa = numeric())
@@ -15,11 +26,11 @@ ctrl <- trainControl(method = 'cv', number = 5, classProbs = T,
                      summaryFunction = twoClassSummary,# sampling='smote',
                      verboseIter = F)
 
-ntrees <- c(500, 1000)    
-nodesize <- c(1, 5)
-
-params <- expand.grid(ntrees = ntrees,
-                      nodesize = nodesize)
+# ntrees <- c(500, 1000)    
+# nodesize <- c(1, 5)
+# 
+# params <- expand.grid(ntrees = ntrees,
+#                       nodesize = nodesize)
 
 cl <- makeCluster(detectCores())
 # cl <- makeCluster(7)
@@ -27,7 +38,7 @@ registerDoParallel(cl)
 
 #repeat mcRep times
 
-pre <- Sys.time()
+
 for (j in 1:mcRep) {
   # create nrfolds folds and start outer CV
   print(j)
@@ -52,17 +63,20 @@ for (j in 1:mcRep) {
     # # missing values imputation
     
     impute_train <- preProcess(training, method = "knnImpute")
-    training <- predict(impute_train, training)
+    # training <- predict(impute_train, training)
     
-    impute_test <- preProcess(rbind(training[,-1], test[,-1]),
-                              method = "knnImpute")
+    # impute_test <- preProcess(rbind(training[,-1], test[,-1]),
+    #                           method = "knnImpute")
     
-    test[,-1] <- predict(impute_test, test[,-1])
+    test[,-1] <- predict(impute_train, test[,-1])
+    
+    booted_training <- bootstrapping(training)
     
     # tuning
-    gbmModel<-train(last_DX ~ ., training, method = "rf", 
+    gbmModel<- train(last_DX ~ ., training, method = "rf", 
                     metric = "ROC",
-                    # preProc = c("center", "scale"),
+                     preProc = c("knnImpute", "scale", "center"),
+                    na.action = na.pass,
                     tuneGrid = GBMGrid,
                     trControl = ctrl)
     

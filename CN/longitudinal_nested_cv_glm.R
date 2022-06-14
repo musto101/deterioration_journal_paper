@@ -26,7 +26,7 @@ ctrl <- trainControl(method = 'cv', number = 5, classProbs = T,
                      summaryFunction = twoClassSummary, sampling='smote',
                      verboseIter = F)
 
-GLMGrid <- expand.grid(lambda = seq(0, 10, 1),
+GLMGrid <- expand.grid(lambda = seq(0, 10, 0.1),
                        alpha = seq(0, 1, 0.01))
 
 cl <- makeCluster(detectCores())
